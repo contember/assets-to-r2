@@ -357,8 +357,15 @@ export interface RefMatcher {
  * cannot match inside `/assets/a.jpg.webp` (the longer run wins) nor inside
  * `/deep/assets/a.jpg` (the run starts at `/deep`), and the leading `/` of an
  * absolute URL is never a match start because `//` breaks the pattern.
+ *
+ * The lookbehind stops a run from starting mid-token. Without it a *relative*
+ * path like `public/assets/a.jpg` matches at `/assets/a.jpg` and the rewrite
+ * leaves the prefix glued to the replacement (`publichttps://cdn…`). Only a
+ * root-relative path — one not preceded by a path character — is a reference.
+ * `/` is deliberately absent from the class so `//` still starts a run at the
+ * second slash, preserving the absolute-URL behaviour above.
  */
-const PATH_RUN = /\/[A-Za-z0-9._~%@-]+(?:\/[A-Za-z0-9._~%@-]+)*/g
+const PATH_RUN = /(?<![A-Za-z0-9._~%@-])\/[A-Za-z0-9._~%@-]+(?:\/[A-Za-z0-9._~%@-]+)*/g
 
 /**
  * Build a lookup for a known set of public paths. Matching is a single linear

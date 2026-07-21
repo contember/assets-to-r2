@@ -23,6 +23,16 @@ test('does not match when the path has a deeper prefix', () => {
 	expect(rewrite('/vendor/assets/a.jpg', ['/assets/a.jpg'])).toBe('/vendor/assets/a.jpg')
 })
 
+test('does not match inside a relative path', () => {
+	// `public/assets/a.jpg` is repo-layout prose, not a site reference; matching
+	// at the inner slash would emit `publichttps://cdn…`.
+	expect(rewrite('see `public/assets/a.jpg`', ['/assets/a.jpg'])).toBe('see `public/assets/a.jpg`')
+})
+
+test('still rewrites a root-relative path at the start of the text', () => {
+	expect(rewrite('/assets/a.jpg', ['/assets/a.jpg'])).toBe('https://cdn.nuasite.com/assets/demo/a.jpg')
+})
+
 test('leaves absolute URLs on other origins alone', () => {
 	const text = 'https://old.example.cz/assets/a.jpg'
 	expect(rewrite(text, ['/assets/a.jpg'])).toBe(text)
