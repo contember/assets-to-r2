@@ -53,6 +53,12 @@ bun $A2R prune --apply                      # delete the local copies
 Every destructive step is dry-run by default and nothing is deleted until
 `verify` passes.
 
+**The CLI is only half the job.** `verify` proves the bytes are on the CDN, not
+that the site renders them. The skill adds three steps the CLI cannot do: audit
+how the markup consumes images (`allowedDomains` silently disables transforms),
+build *after* pruning (building while the local copies still exist gives a false
+pass), and confirm real rendering in a browser. See `SKILL.md` steps 6–9.
+
 ## What moves and what stays
 
 Assets are classified by how they are referenced across all tracked text files.
