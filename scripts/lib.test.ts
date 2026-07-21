@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { buildKey, buildRefMatcher, buildUrl, classify, findRef, replaceRefs } from './lib.ts'
+import { buildKey, buildRefMatcher, buildUrl, classify, findRef, replaceRefs, sniffMagic } from './lib.ts'
 
 const CDN = 'https://cdn.nuasite.com'
 
@@ -112,6 +112,29 @@ test('unreferenced but sizeable files are orphaned uploads and move', () => {
 test('unreferenced tiny files are left for the operator to judge', () => {
 	const v = classify(asset('assets/blip.png', 200), refs())
 	expect(v.class).toBe('uncertain')
+})
+
+// ---------------------------------------------------------- magic bytes ---
+
+const bytes = (...v: (number | string)[]) =>
+	new Uint8Array(v.flatMap(x => typeof x === 'string' ? [...x].map(c => c.charCodeAt(0)) : [x]))
+
+test('sniffs the formats crawled media actually arrives in', () => {
+	expect(sniffMagic(bytes(0xff, 0xd8, 0xff, 0xe0))).toBe('image/jpeg')
+	expect(sniffMagic(bytes(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a))).toBe('image/png')
+	expect(sniffMagic(bytes('GIF89a'))).toBe('image/gif')
+	expect(sniffMagic(bytes('RIFF', 0, 0, 0, 0, 'WEBP'))).toBe('image/webp')
+	expect(sniffMagic(bytes(0, 0, 0, 0, 'ftypavif'))).toBe('image/avif')
+	expect(sniffMagic(bytes('%PDF-1.7'))).toBe('application/pdf')
+	expect(sniffMagic(bytes('<svg xmlns'))).toBe('image/svg+xml')
+})
+
+test('sniffing gives up rather than guessing', () => {
+	expect(sniffMagic(bytes('hello there'))).toBeUndefined()
+})
+
+test('a webp is not mistaken for a bare RIFF container', () => {
+	expect(sniffMagic(bytes('RIFF', 0, 0, 0, 0, 'WAVE'))).toBeUndefined()
 })
 
 test('urls are percent-encoded per path segment', () => {

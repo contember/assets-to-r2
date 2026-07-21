@@ -59,6 +59,7 @@ export interface ManifestEntry {
 	key: string
 	url: string
 	size: number
+	contentType: string
 	status: UploadStatus
 	error?: string
 }
@@ -521,9 +522,41 @@ export function buildUrl(cdnBaseUrl: string, key: string): string {
 	return `${stripTrailingSlash(cdnBaseUrl)}/${key.split('/').map(encodeURIComponent).join('/')}`
 }
 
-export function contentTypeFor(absPath: string): string {
-	const type = Bun.file(absPath).type || 'application/octet-stream'
-	return type.split(';')[0]!.trim()
+const startsWith = (bytes: Uint8Array, sig: number[], offset = 0) =>
+	sig.every((b, i) => bytes[offset + i] === b)
+
+const ascii = (bytes: Uint8Array, s: string, offset = 0) =>
+	startsWith(bytes, [...s].map(c => c.charCodeAt(0)), offset)
+
+/**
+ * Identify a file from its leading bytes.
+ *
+ * Crawled media regularly has no extension at all, and serving those as
+ * `application/octet-stream` makes browsers download the file instead of
+ * rendering it — so the extension is a hint, not the authority.
+ */
+export function sniffMagic(bytes: Uint8Array): string | undefined {
+	if (startsWith(bytes, [0xff, 0xd8, 0xff])) return 'image/jpeg'
+	if (startsWith(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return 'image/png'
+	if (ascii(bytes, 'GIF8')) return 'image/gif'
+	if (ascii(bytes, 'RIFF') && ascii(bytes, 'WEBP', 8)) return 'image/webp'
+	if (ascii(bytes, 'ftypavif', 4)) return 'image/avif'
+	if (ascii(bytes, 'ftypheic', 4) || ascii(bytes, 'ftypheix', 4)) return 'image/heic'
+	if (ascii(bytes, '%PDF-')) return 'application/pdf'
+	if (startsWith(bytes, [0x49, 0x49, 0x2a, 0x00]) || startsWith(bytes, [0x4d, 0x4d, 0x00, 0x2a])) {
+		return 'image/tiff'
+	}
+	if (startsWith(bytes, [0x00, 0x00, 0x01, 0x00])) return 'image/x-icon'
+	if (ascii(bytes, '<svg') || ascii(bytes, '<?xml')) return 'image/svg+xml'
+	return undefined
+}
+
+export async function contentTypeFor(absPath: string): Promise<string> {
+	const byExtension = (Bun.file(absPath).type || '').split(';')[0]!.trim()
+	if (byExtension && byExtension !== 'application/octet-stream') return byExtension
+
+	const head = new Uint8Array(await Bun.file(absPath).slice(0, 16).arrayBuffer())
+	return sniffMagic(head) ?? 'application/octet-stream'
 }
 
 // ------------------------------------------------------------- arg parsing ---

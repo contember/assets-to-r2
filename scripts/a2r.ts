@@ -53,8 +53,6 @@ import {
  * skill's `reference/cdn-zone.md` for the Cache Rule to add.
  */
 
-const RASTER_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.avif', '.tif', '.tiff'])
-
 async function main() {
 	const argv = Bun.argv.slice(2)
 	const command = argv[0]
@@ -183,7 +181,7 @@ async function inventory(root: string, args: Args) {
 			key,
 			url: buildUrl(pub.cdnBaseUrl, key),
 			size: a.size,
-			contentType: contentTypeFor(join(root, a.path)),
+			contentType: await contentTypeFor(join(root, a.path)),
 			action: verdict.action,
 			class: verdict.class,
 			reason: verdict.reason,
@@ -319,7 +317,7 @@ async function upload(root: string, args: Args) {
 	let done = 0
 	let uploadedBytes = 0
 	const entries = await pool(targets, concurrency, async (f): Promise<ManifestEntry> => {
-		const base = { path: f.path, ref: f.ref, key: f.key, url: f.url, size: f.size }
+		const base = { path: f.path, ref: f.ref, key: f.key, url: f.url, size: f.size, contentType: f.contentType }
 		try {
 			if (!force) {
 				const existing = await client.stat(f.key).catch(() => null)
@@ -440,6 +438,12 @@ async function verify(root: string, args: Args) {
 				problems.push(`size ${len} ≠ local ${e.size}  ${e.url}`)
 				return
 			}
+			// octet-stream makes a browser download rather than render the asset
+			const served = (res.headers.get('content-type') ?? '').split(';')[0]!.trim()
+			if (served === 'application/octet-stream' && e.contentType !== 'application/octet-stream') {
+				problems.push(`served as octet-stream, expected ${e.contentType}  ${e.url}`)
+				return
+			}
 			ok++
 		} catch (error) {
 			problems.push(`${error instanceof Error ? error.message : String(error)}  ${e.url}`)
@@ -452,13 +456,20 @@ async function verify(root: string, args: Args) {
 	}
 
 	// cdn-cgi transform spot-check — this is what the nuasite <Image> component hits.
-	const rasters = live.filter(e => RASTER_EXT.has(extname(e.key).toLowerCase())).slice(0, samples)
+	// Send a browser-like Accept: with `format=auto` the negotiated type depends on
+	// it, and a bare fetch would report jpeg where a real visitor gets webp/avif.
+	const BROWSER_ACCEPT = 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8'
+	// Select by sniffed type, not extension — extensionless crawled media is
+	// exactly the case most likely to be broken.
+	const rasters = live
+		.filter(e => e.contentType.startsWith('image/') && e.contentType !== 'image/svg+xml')
+		.slice(0, samples)
 	if (rasters.length) {
 		console.log(`\ncdn-cgi transform spot-check (${rasters.length} sample(s)):`)
 		for (const e of rasters) {
 			const transformUrl = `${manifest.cdnBaseUrl}/cdn-cgi/image/quality=85,format=auto,width=480/${e.key}`
 			try {
-				const res = await fetch(transformUrl, { cache: 'no-store' })
+				const res = await fetch(transformUrl, { cache: 'no-store', headers: { accept: BROWSER_ACCEPT } })
 				const type = res.headers.get('content-type') ?? ''
 				const bytes = Number(res.headers.get('content-length') ?? '0')
 				if (!res.ok) {
