@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { buildKey, buildRefMatcher, buildUrl, classify, findRef, replaceRefs, sniffMagic } from './lib.ts'
+import { buildKey, buildRefMatcher, buildUrl, classify, findRef, readPublicConfig, readR2Config, replaceRefs, sniffMagic } from './lib.ts'
 
 const CDN = 'https://cdn.nuasite.com'
 
@@ -150,4 +150,36 @@ test('a webp is not mistaken for a bare RIFF container', () => {
 test('urls are percent-encoded per path segment', () => {
 	expect(buildUrl(CDN, 'assets/demo/a b.jpg')).toBe('https://cdn.nuasite.com/assets/demo/a%20b.jpg')
 	expect(buildUrl(CDN, 'assets/demo/sub/c.jpg')).toBe('https://cdn.nuasite.com/assets/demo/sub/c.jpg')
+})
+
+function withBucketEnv(bucket: string | undefined, check: () => void) {
+	const previous = process.env.R2_BUCKET
+	if (bucket === undefined) delete process.env.R2_BUCKET
+	else process.env.R2_BUCKET = bucket
+	try {
+		check()
+	} finally {
+		if (previous === undefined) delete process.env.R2_BUCKET
+		else process.env.R2_BUCKET = previous
+	}
+}
+
+test('requires an explicit bucket for public and authenticated config', () => {
+	withBucketEnv(undefined, () => {
+		expect(() => readPublicConfig()).toThrow('missing R2_BUCKET')
+		expect(() => readR2Config()).toThrow('missing R2_BUCKET')
+	})
+})
+
+test('accepts a bucket override without R2_BUCKET in the environment', () => {
+	withBucketEnv(undefined, () => {
+		expect(readPublicConfig({ bucket: 'example-assets' }).bucket).toBe('example-assets')
+	})
+})
+
+test('reads the bucket from the environment and lets an override take precedence', () => {
+	withBucketEnv('example-assets', () => {
+		expect(readPublicConfig().bucket).toBe('example-assets')
+		expect(readPublicConfig({ bucket: 'other-assets' }).bucket).toBe('other-assets')
+	})
 })
